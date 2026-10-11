@@ -24,8 +24,8 @@
               ? 'bg-blue-100 text-blue-700'
               : 'bg-gray-200 text-gray-700'"
           >
-            <!-- Display the message text -->
-            <span x-text="msg.text"></span>
+            <!-- Display the message text (pre-wrap keeps line breaks and code output) -->
+            <span class="whitespace-pre-wrap" x-text="msg.text"></span>
           </p>
         </div>
       </template>
@@ -66,6 +66,7 @@
         newMessage: "",
         currentEventSource: null,
         streaming: false,
+        conversationId: null,  // Sent by the server with the first reply
 
         async sendMessage() {
           const prompt = this.newMessage.trim();
@@ -75,12 +76,20 @@
           this.messages.push({ sender: "user", text: prompt });
           this.newMessage = "";
 
-          // 2) Create an SSE connection
-          const url = `{{ root_prefix }}/chat-stream?prompt=${encodeURIComponent(prompt)}`;
+          // 2) Create an SSE connection (continuing our conversation, if any)
+          let url = `{{ root_prefix }}/chat-stream?prompt=${encodeURIComponent(prompt)}`;
+          if (this.conversationId) {
+            url += `&conversation_id=${encodeURIComponent(this.conversationId)}`;
+          }
           const eventSource = new EventSource(url);
 
           this.currentEventSource = eventSource;
           this.streaming = true;
+
+          // The first reply starts a conversation: keep its id for the next messages
+          eventSource.addEventListener("conversation", (event) => {
+            this.conversationId = event.data;
+          });
 
           // We'll store the partial response for the assistant here
           let assistantIndex = null;

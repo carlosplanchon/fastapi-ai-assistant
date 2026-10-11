@@ -171,6 +171,3 @@ cython_debug/
 .pypirc
 
 config.toml
-
-# UV:
-uv.lock

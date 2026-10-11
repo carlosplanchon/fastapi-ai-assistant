@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fastapi-ai-assistant"
 version = "0.1.0"
-description = "FastAPI application demonstrating OpenAI Assistants with real-time streaming"
+description = "FastAPI application demonstrating the OpenAI Responses API with real-time streaming"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 license = "MIT"
 license-files = ["LICENSE"]
@@ -15,12 +15,11 @@ license-files = ["LICENSE"]
 authors = [
     {name = "Carlos A. Planchón", email = "carlosandresplanchonprestes@gmail.com"}
 ]
-keywords = ["fastapi", "openai", "assistants", "ai", "chat", "sse", "streaming"]
+keywords = ["fastapi", "openai", "responses-api", "ai", "chat", "sse", "streaming"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -35,7 +34,7 @@ dependencies = [
     "python-multipart",
     "jinja2",
     "sse-starlette",
-    "openai",
+    "openai>=1.101",  # First release with the Conversations API.
 ]
 
 [project.optional-dependencies]
@@ -48,10 +47,10 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/carlosplanchon/fastapi_ai_assistant"
+Repository = "https://github.com/carlosplanchon/fastapi-ai-assistant"
 
 [project.scripts]
-fastapi-ai-assistant = "main:main"
+fastapi-ai-assistant = "fastapi_ai_assistant.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -59,14 +58,17 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+fastapi_ai_assistant = ["templates/*.html"]
+
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312", "py313", "py314"]
+target-version = ["py311", "py312", "py313", "py314"]
 include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -84,7 +86,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
