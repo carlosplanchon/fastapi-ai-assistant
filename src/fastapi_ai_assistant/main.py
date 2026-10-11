@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 
 import logging
+import math
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from openai import AsyncOpenAI, OpenAIError
 from sse_starlette import EventSourceResponse  # SSE streaming utility
 
+from fastapi_ai_assistant.security import (
+    MAX_PROMPT_CHARS,
+    authenticate,
+    rate_limiter,
+    reject_cross_site,
+)
 from fastapi_ai_assistant.shared import CONFIG
 
 logger = logging.getLogger(__name__)
@@ -74,6 +81,25 @@ async def stream_reply(prompt: str, conversation_id: str | None) -> AsyncIterato
     yield {"data": "[DONE]"}
 
 
+async def notice(text: str) -> AsyncIterator[dict[str, str]]:
+    """
+    Reply with a fixed message instead of asking OpenAI.
+    """
+    yield {"data": text}
+    yield {"data": "[DONE]"}
+
+
+def format_wait(seconds: float) -> str:
+    """
+    Round a wait up to a short human unit, e.g. "40 s", "3 min" or "5 h".
+    """
+    if seconds < 60:
+        return f"{math.ceil(seconds)} s"
+    if seconds < 60 * 60:
+        return f"{math.ceil(seconds / 60)} min"
+    return f"{math.ceil(seconds / (60 * 60))} h"
+
+
 # Setup Jinja2 templates (next to this file, so the app runs from any directory)
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -87,14 +113,15 @@ else:
 print(f"root_path: {root_path}")
 print(f"root_prefix: {root_prefix}")
 
-app = FastAPI(root_path=root_prefix, title="AI Chat App")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+# Every route requires the credentials from config.toml. The automatic API docs
+# (/docs, /redoc, /openapi.json) are turned off: FastAPI serves them without dependencies.
+app = FastAPI(
+    root_path=root_prefix,
+    title="AI Chat App",
+    dependencies=[Depends(authenticate)],
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 
@@ -103,14 +130,31 @@ def get_index(request: Request):
     """
     Return the main page (Jinja template).
     """
-    return templates.TemplateResponse(request, "index.html", {"root_prefix": root_prefix})
+    return templates.TemplateResponse(
+        request, "index.html", {"root_prefix": root_prefix, "max_prompt_chars": MAX_PROMPT_CHARS}
+    )
 
 
-@app.get("/chat-stream", response_class=EventSourceResponse)
-async def chat_stream(prompt: str, conversation_id: str | None = None):
+@app.get(
+    "/chat-stream",
+    response_class=EventSourceResponse,
+    dependencies=[Depends(reject_cross_site)],
+)
+async def chat_stream(
+    username: Annotated[str, Depends(authenticate)],
+    prompt: Annotated[str, Query(min_length=1, max_length=MAX_PROMPT_CHARS)],
+    conversation_id: str | None = None,
+):
     """
     This endpoint uses SSE to stream AI responses in real time.
     """
+    wait = rate_limiter.acquire(username)
+    if wait:
+        logger.warning("Rate limit reached for user %r", username)
+        # Explained inside the stream, because EventSource can't read HTTP error responses.
+        return EventSourceResponse(
+            notice(f"[Error: message limit reached. Try again in {format_wait(wait)}.]")
+        )
     return EventSourceResponse(stream_reply(prompt, conversation_id))
 
 

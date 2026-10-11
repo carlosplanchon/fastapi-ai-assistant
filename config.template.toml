@@ -1,2 +1,14 @@
 [app]
 ROOT_PATH = ""
+
+[auth]
+# Credentials the browser asks for (HTTP Basic), ASCII only. Use a long random
+# password, e.g. the output of: python -c "import secrets; print(secrets.token_urlsafe(24))"
+USERNAME = "admin"
+PASSWORD = ""
+
+[limits]
+# Every message costs OpenAI credits. These caps apply to each user.
+MESSAGES_PER_MINUTE = 10
+MESSAGES_PER_DAY = 200
+MAX_PROMPT_CHARS = 2000

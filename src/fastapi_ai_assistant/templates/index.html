@@ -38,6 +38,7 @@
         type="text"
         class="border border-gray-300 rounded px-2 py-1 w-full"
         placeholder="Type your message..."
+        maxlength="{{ max_prompt_chars }}"
         :disabled="streaming"
       /> <!-- Optionally disable while streaming -->
       <button

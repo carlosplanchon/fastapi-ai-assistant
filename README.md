@@ -1,5 +1,7 @@
 # fastapi_ai_assistant
 
+[![CI](https://github.com/carlosplanchon/fastapi-ai-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/carlosplanchon/fastapi-ai-assistant/actions/workflows/ci.yml)
+
 This repository contains a **FastAPI** application that streams answers from an AI math tutor built on the OpenAI **[Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)** and **[Conversations API](https://developers.openai.com/api/reference/resources/conversations/methods/create)**. Tokens reach the browser in real time through Server-Sent Events (SSE), and the model can write and run Python with the built-in **Code Interpreter** tool.
 
 > **Note:** earlier versions of this project followed the OpenAI *Assistants* QuickStart. OpenAI shut down the Assistants API on August 26, 2026, so the app now uses the Responses and Conversations APIs instead.
@@ -44,6 +46,8 @@ This repository contains a **FastAPI** application that streams answers from an 
    A **Stop** button in the UI closes the SSE connection; the server then cancels the stream and closes its connection to OpenAI.
 5. **Error Handling**  
    If OpenAI fails, the error is logged on the server, shown in the chat, and the stream ends cleanly.
+6. **Access Control**  
+   A username and password protect the whole app, and per-user rate limits cap what it can spend on OpenAI. See [Security](#security).
 
 ---
 
@@ -66,9 +70,10 @@ Requires **Python 3.11+** and an OpenAI API key.
    pip install .
    ```
 
-3. **Create** your config file:
+3. **Create** your config file and set a password in its `[auth]` section (the app won't start without one):
    ```bash
    cp config.template.toml config.toml
+   python -c "import secrets; print(secrets.token_urlsafe(24))"  # A good random password
    ```
 
 4. **Set** your `OPENAI_API_KEY` environment variable:
@@ -90,7 +95,7 @@ Requires **Python 3.11+** and an OpenAI API key.
    ```
    If you installed with pip, run the same commands without the `uv run` prefix.
 
-2. **Navigate** to:
+2. **Navigate** to the URL below and log in with the username and password from `config.toml`:
    ```
    http://localhost:8000/
    ```
@@ -104,9 +109,47 @@ Requires **Python 3.11+** and an OpenAI API key.
 
 ## Configuration
 
-`config.toml` has a single setting:
+The app reads `config.toml` from the current directory. To use another file, set the `FASTAPI_AI_ASSISTANT_CONFIG` environment variable to its path.
 
-- **`ROOT_PATH`**: leave it empty (`""`) to serve the app at `/`. When the app runs behind a reverse proxy under a sub-path (e.g. `https://example.com/chat/`), set it to that path without slashes (`"chat"`).
+- **`[app]`**
+  - **`ROOT_PATH`**: leave it empty (`""`) to serve the app at `/`. When the app runs behind a reverse proxy under a sub-path (e.g. `https://example.com/chat/`), set it to that path without slashes (`"chat"`).
+- **`[auth]`**
+  - **`USERNAME`** and **`PASSWORD`**: the credentials the browser asks for. Both are required and must be ASCII.
+- **`[limits]`** (optional; these are the defaults)
+  - **`MESSAGES_PER_MINUTE = 10`** and **`MESSAGES_PER_DAY = 200`**: how many messages each user can send. Past a limit, the chat says how long to wait.
+  - **`MAX_PROMPT_CHARS = 2000`**: the longest message accepted.
+
+---
+
+## Security
+
+Every message costs OpenAI credits, so the app protects them:
+
+- **Authentication**: every page and endpoint requires the HTTP Basic credentials from `config.toml`, compared in constant time. FastAPI's automatic API docs (`/docs`, `/redoc`, `/openapi.json`) are turned off, because FastAPI would serve them without credentials.
+- **Rate limits**: per-user caps per minute and per day, plus a maximum message length.
+- **CSRF protection**: `/chat-stream` rejects requests that other websites trigger from your browser (the browser marks them with the `Sec-Fetch-Site` header). There is no CORS middleware, since the UI is served from the same origin.
+
+If you expose the app beyond your machine:
+
+- **Serve it over HTTPS** (e.g. behind a reverse proxy). HTTP Basic sends the password with every request, encoded but not encrypted.
+- **Run a single process.** Rate limits are kept in memory, so each process counts on its own and they reset on restart.
+- **Messages travel in the URL** (`/chat-stream?prompt=...`), so they can show up in proxy or access logs.
+
+---
+
+## Development
+
+Install the development tools, then run the same checks as CI:
+
+```bash
+uv sync --extra dev
+uv run pytest            # Tests, with a fake OpenAI client (no API calls, no costs)
+uv run ruff check        # Lint
+uv run black --check .   # Formatting
+uv run mypy src          # Type checks
+```
+
+GitHub Actions runs these checks on every push to `main` and on every pull request, with Python 3.11 to 3.14. It also builds the wheel and checks that it ships the chat template. See `.github/workflows/ci.yml`.
 
 ---
 
@@ -114,11 +157,15 @@ Requires **Python 3.11+** and an OpenAI API key.
 
 ```bash
 fastapi-ai-assistant/
+├── .github/workflows/
+│   └── ci.yml              # Lint, type checks, tests and wheel build on GitHub Actions
 ├── src/fastapi_ai_assistant/
 │   ├── main.py             # FastAPI app: SSE endpoint + Responses API streaming
+│   ├── security.py         # Authentication, CSRF check and rate limits
 │   ├── shared.py           # Loads config.toml
 │   └── templates/
 │       └── index.html      # Chat UI (HTML, Alpine.js, TailwindCSS)
+├── tests/                  # pytest suite, with a fake OpenAI client
 ├── config.template.toml    # Copy it to config.toml
 ├── pyproject.toml          # Project metadata and dependencies
 └── uv.lock                 # Pinned dependency versions

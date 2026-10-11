@@ -1,0 +1,11 @@
+[app]
+ROOT_PATH = ""
+
+[auth]
+USERNAME = "tester"
+PASSWORD = "test-password"
+
+[limits]
+MESSAGES_PER_MINUTE = 3
+MESSAGES_PER_DAY = 100
+MAX_PROMPT_CHARS = 50

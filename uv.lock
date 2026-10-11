@@ -309,6 +309,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "black" },
+    { name = "httpx2" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -319,6 +320,7 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
     { name = "fastapi" },
+    { name = "httpx2", marker = "extra == 'dev'" },
     { name = "jinja2" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "openai", specifier = ">=1.101" },
