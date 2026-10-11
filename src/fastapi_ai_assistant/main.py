@@ -66,7 +66,8 @@ async def stream_reply(prompt: str, conversation_id: str | None) -> AsyncIterato
                     if event.item.type == "code_interpreter_call":
                         for output in event.item.outputs or []:
                             if output.type == "logs":
-                                yield {"data": output.logs}
+                                # In a code block, so the chat doesn't render them as Markdown.
+                                yield {"data": f"\n```\n{output.logs.rstrip()}\n```\n"}
                 # The SDK yields these as regular events instead of raising.
                 elif event.type == "error":
                     raise OpenAIError(event.message)

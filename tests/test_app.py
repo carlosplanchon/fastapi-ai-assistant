@@ -120,7 +120,9 @@ async def test_code_interpreter_calls_and_logs_are_shown(client, fake_openai):
         text_delta("It is 5."),
     ]
     events = await chat(client, prompt="2 + 3?")
-    assert chat_text(events) == "Let me run it:\n[Tool Call Created: code_interpreter]\n5\nIt is 5."
+    assert chat_text(events) == (
+        "Let me run it:\n[Tool Call Created: code_interpreter]\n\n```\n5\n```\nIt is 5."
+    )
     assert fake_openai.response_calls[0]["include"] == ["code_interpreter_call.outputs"]
 
 

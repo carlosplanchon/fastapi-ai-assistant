@@ -1,0 +1,24 @@
+# Weekly pull requests that update the CI actions (pinned by SHA) and uv.lock.
+# The cooldown skips releases younger than a week; security updates are not delayed.
+# The frontend libraries loaded from the CDN in index.html are not covered.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      python-dependencies:
+        patterns: ["*"]

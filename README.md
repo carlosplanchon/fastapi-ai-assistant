@@ -48,6 +48,8 @@ This repository contains a **FastAPI** application that streams answers from an 
    If OpenAI fails, the error is logged on the server, shown in the chat, and the stream ends cleanly.
 6. **Access Control**  
    A username and password protect the whole app, and per-user rate limits cap what it can spend on OpenAI. See [Security](#security).
+7. **Formatted Replies**  
+   Replies are rendered as Markdown with LaTeX math (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) while they stream in, using [marked](https://marked.js.org/) and [KaTeX](https://katex.org/).
 
 ---
 
@@ -128,6 +130,8 @@ Every message costs OpenAI credits, so the app protects them:
 - **Authentication**: every page and endpoint requires the HTTP Basic credentials from `config.toml`, compared in constant time. FastAPI's automatic API docs (`/docs`, `/redoc`, `/openapi.json`) are turned off, because FastAPI would serve them without credentials.
 - **Rate limits**: per-user caps per minute and per day, plus a maximum message length.
 - **CSRF protection**: `/chat-stream` rejects requests that other websites trigger from your browser (the browser marks them with the `Sec-Fetch-Site` header). There is no CORS middleware, since the UI is served from the same origin.
+- **Safe rendering of replies**: the model's output is untrusted, so the Markdown HTML goes through [DOMPurify](https://github.com/cure53/DOMPurify) with an allowlist: no scripts, images, styles, classes or Alpine attributes, so a reply can't run code, restyle the page or send data to other sites. Math is cut out first and rendered by KaTeX, whose risky commands (`\href`, `\htmlData`, ...) stay disabled.
+- **Pinned frontend libraries**: the CDN scripts load exact versions with [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity) hashes, so the browser rejects any modified file. The exception is the Tailwind Play CDN, which is meant for demos.
 
 If you expose the app beyond your machine:
 
@@ -151,20 +155,24 @@ uv run mypy src          # Type checks
 
 GitHub Actions runs these checks on every push to `main` and on every pull request, with Python 3.11 to 3.14. It also builds the wheel and checks that it ships the chat template. See `.github/workflows/ci.yml`.
 
+Dependabot opens weekly pull requests to update the CI actions and `uv.lock`, skipping releases younger than a week (security fixes are not delayed). It doesn't cover the frontend libraries in `index.html`: to update one, change its version and its `integrity` hash together.
+
 ---
 
 ## Code Structure
 
 ```bash
 fastapi-ai-assistant/
-├── .github/workflows/
-│   └── ci.yml              # Lint, type checks, tests and wheel build on GitHub Actions
+├── .github/
+│   ├── dependabot.yml      # Weekly updates for the CI actions and uv.lock
+│   └── workflows/
+│       └── ci.yml          # Lint, type checks, tests and wheel build on GitHub Actions
 ├── src/fastapi_ai_assistant/
 │   ├── main.py             # FastAPI app: SSE endpoint + Responses API streaming
 │   ├── security.py         # Authentication, CSRF check and rate limits
 │   ├── shared.py           # Loads config.toml
 │   └── templates/
-│       └── index.html      # Chat UI (HTML, Alpine.js, TailwindCSS)
+│       └── index.html      # Chat UI (Alpine.js, TailwindCSS, marked, KaTeX, DOMPurify)
 ├── tests/                  # pytest suite, with a fake OpenAI client
 ├── config.template.toml    # Copy it to config.toml
 ├── pyproject.toml          # Project metadata and dependencies
@@ -182,6 +190,7 @@ fastapi-ai-assistant/
   - A Tailwind-styled chat interface with **Alpine.js** for reactivity.
   - Subscribes to the `/chat-stream` endpoint using `EventSource` and keeps the conversation id sent by the server.
   - Displays real-time tokens as they arrive and offers a **Stop** button.
+  - Renders replies as sanitized Markdown with KaTeX math (`renderMarkdown()`); your own messages are shown as plain text.
 
 ---
 
