@@ -157,6 +157,15 @@ GitHub Actions runs these checks on every push to `main` and on every pull reque
 
 Dependabot opens weekly pull requests to update the CI actions and `uv.lock`, skipping releases younger than a week (security fixes are not delayed). It doesn't cover the frontend libraries in `index.html`: to update one, change its version and its `integrity` hash together.
 
+### Smoke test against the real API
+
+The tests use a fake OpenAI client, so they never check the real integration. `scripts/smoke_test.py` does: it runs the app's streaming code against the real API and checks that a conversation streams its replies, that the code interpreter runs Python, that the conversation remembers earlier messages, and that it still works after a reply is stopped halfway. It spends a little OpenAI credit, so CI doesn't run it. Run it from the folder that contains `config.toml`, especially after Dependabot updates `openai`:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+uv run python scripts/smoke_test.py   # ✓ or ✗ per check; exit code 1 if any fails
+```
+
 ---
 
 ## Code Structure
@@ -173,6 +182,8 @@ fastapi-ai-assistant/
 │   ├── shared.py           # Loads config.toml
 │   └── templates/
 │       └── index.html      # Chat UI (Alpine.js, TailwindCSS, marked, KaTeX, DOMPurify)
+├── scripts/
+│   └── smoke_test.py       # Checks against the real OpenAI API (spends credit)
 ├── tests/                  # pytest suite, with a fake OpenAI client
 ├── config.template.toml    # Copy it to config.toml
 ├── pyproject.toml          # Project metadata and dependencies
