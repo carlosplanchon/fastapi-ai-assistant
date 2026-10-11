@@ -8,6 +8,8 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from fastapi_ai_assistant.shared import CONFIG
 
@@ -101,3 +103,59 @@ class RateLimiter:
 
 
 rate_limiter = RateLimiter([(MESSAGES_PER_MINUTE, 60), (MESSAGES_PER_DAY, 24 * 60 * 60)])
+
+# Sent with every response. The chat page replaces the Content-Security-Policy
+# with a stricter one that lets its own scripts run (see page_policy).
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "X-Frame-Options": "DENY",  # What older browsers understand of frame-ancestors 'none'
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+class SecurityHeaders:
+    """
+    Adds SECURITY_HEADERS to every response that doesn't set them already.
+    A pure ASGI middleware: unlike BaseHTTPMiddleware, it leaves streaming responses
+    and the detection of disconnected clients (the Stop button) untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in SECURITY_HEADERS.items():
+                    headers.setdefault(name, value)
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+def page_policy(nonce: str) -> str:
+    """
+    Content Security Policy of the chat page: only the scripts and styles that carry
+    this response's nonce run, so markup that slips into the page can't execute anything.
+    """
+    return "; ".join(
+        [
+            "default-src 'none'",
+            f"script-src 'nonce-{nonce}'",
+            f"style-src-elem 'nonce-{nonce}'",
+            "style-src-attr 'unsafe-inline'",  # KaTeX lays out formulas with style attributes
+            "font-src https://cdn.jsdelivr.net",  # KaTeX fonts
+            "connect-src 'self'",
+            "img-src 'self'",
+            "base-uri 'none'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ]
+    )

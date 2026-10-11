@@ -52,6 +52,15 @@ $\href{javascript:window.pwned='katex'}{x}$ and $\htmlData{x-init=window.pwned='
 The end."""
 
 
+# Runs before the page's own scripts (Playwright injects it outside the page's CSP).
+RECORD_CSP_VIOLATIONS = """
+    window.cspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+        window.cspViolations.push(`${event.effectiveDirective} ${event.blockedURI}`);
+    });
+"""
+
+
 def chunks(text: str, size: int = 5) -> list:
     """
     Split a reply into small deltas, so formulas arrive cut in pieces as they do live.
@@ -213,3 +222,41 @@ def test_event_reader_handles_line_breaks_split_across_chunks(page, server_url):
         {"type": "conversation", "data": "conv_1"},
         {"type": "message", "data": "a\nb"},
     ]
+
+
+def test_content_security_policy_lets_the_chat_work(page, server_url, fake_openai):
+    fake_openai.events = chunks(MARKDOWN)
+    page.add_init_script(RECORD_CSP_VIOLATIONS)
+    page.goto(server_url)
+    send(page, "Show me some formatting")
+    reply = last_reply(page, "A link")
+
+    expect(reply.locator(".katex")).to_have_count(4)  # KaTeX ran, with its styles and fonts
+    page.wait_for_timeout(300)
+    assert page.evaluate("window.cspViolations") == []
+
+
+def test_content_security_policy_blocks_scripts_that_get_past_sanitizing(page, server_url):
+    page.add_init_script(RECORD_CSP_VIOLATIONS)
+    page.goto(server_url)
+    # Pretend a reply slipped past DOMPurify: the browser itself must refuse to run it.
+    page.evaluate("""() => {
+        const messages = document.querySelector(".messages");
+        messages.insertAdjacentHTML("beforeend", '<img src="x" onerror="window.pwned = 1">');
+        const script = document.createElement("script");
+        script.textContent = "window.pwned = 2";
+        document.body.append(script);
+    }""")
+    page.wait_for_timeout(500)
+
+    assert page.evaluate("window.pwned") is None
+    blocked = " ".join(page.evaluate("window.cspViolations"))
+    assert "script-src-attr" in blocked and "script-src-elem" in blocked
+
+
+def test_page_cannot_be_embedded_in_another_site(page, server_url):
+    with page.expect_response(lambda response: response.url.startswith(server_url)):
+        page.set_content(f'<iframe src="{server_url}/"></iframe>')
+    page.wait_for_timeout(500)
+    # The browser refuses to show the chat inside the frame (frame-ancestors 'none').
+    assert "AI Chat" not in page.frames[1].content()

@@ -4,36 +4,42 @@
   <meta charset="UTF-8" />
   <title>AI Chat App</title>
   <!-- Markdown, math and HTML sanitizing for the replies. Exact versions with SRI hashes:
-       the browser refuses a file that differs from the one reviewed. -->
+       the browser refuses a file that differs from the one reviewed. Every script and style
+       carries this response's nonce: the page's Content Security Policy blocks any other. -->
   <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css"
     integrity="sha384-lPx0C4zIUZLpveABMwOFcFeGZwsvKBJfhJ85FN1PYOV7xApBcFMhcAEMVKF8loOI"
     crossorigin="anonymous"
+    nonce="{{ csp_nonce }}"
   />
   <script
     src="https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js"
     integrity="sha384-2vpGtuKqJvFlwJqYnf/wUMuzUfhUnYBt9oay0e2yaFcq0Dh6/aEbQ8YAOeKGzlYo"
     crossorigin="anonymous"
+    nonce="{{ csp_nonce }}"
   ></script>
   <script
     src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"
     integrity="sha384-19KE2cFb3U+RUWmyhBz7aLOGDG8WrRC6hE3oY/HTZZlAAVWYTdmvLC//+TIV3zUx"
     crossorigin="anonymous"
+    nonce="{{ csp_nonce }}"
   ></script>
   <script
     src="https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js"
     integrity="sha384-a7SzOxErzJ3ZpQz0zJ32d67dSitNzPcbfybc/ykU9KJhMgZkwqfSxlhhdJRS+XGL"
     crossorigin="anonymous"
+    nonce="{{ csp_nonce }}"
   ></script>
-  <!-- Alpine.js -->
+  <!-- Alpine.js, CSP build: it runs the template's expressions without eval() -->
   <script
     defer
-    src="https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js"
-    integrity="sha384-5/joNqFnRyVWzXp99bHot6RHG+EksGp+USSgZwPar7T9SD9PKKER37n/8bXBAZGd"
+    src="https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.17.4/dist/cdn.min.js"
+    integrity="sha384-DQd2BgbtOQrdt/JbxcM+wSb8poOHwsG5W2jbbXskj85r7SWPwqpBFgGGR1devM/D"
     crossorigin="anonymous"
+    nonce="{{ csp_nonce }}"
   ></script>
-  <style>
+  <style nonce="{{ csp_nonce }}">
     /* Plain CSS, so the page loads no stylesheet code from third parties.
        The base rules give every browser the same starting point. */
     *, *::before, *::after { box-sizing: border-box; }
@@ -101,7 +107,7 @@
   </style>
 </head>
 <body>
-  <div class="chat" x-data="chatApp()">
+  <div class="chat" x-data="chatApp">
     <h1 class="title">AI Chat</h1>
 
     <!-- The conversation messages -->
@@ -114,7 +120,7 @@
               <span class="user-text" x-text="msg.text"></span>
             </template>
             <template x-if="msg.sender === 'assistant'">
-              <div class="markdown" x-html="renderMarkdown(msg.text)"></div>
+              <div class="markdown" x-markdown="msg.text"></div>
             </template>
           </div>
         </div>
@@ -149,7 +155,7 @@
     </form>
   </div>
 
-  <script>
+  <script nonce="{{ csp_nonce }}">
     // Replies come from the model, so they are untrusted HTML. Math is cut out first and
     // rendered by KaTeX after sanitizing: KaTeX needs inline styles, the model's HTML gets none.
     const MATH_DELIMITERS = [
@@ -306,6 +312,17 @@
         },
       };
     }
+
+    document.addEventListener("alpine:init", () => {
+      // x-markdown="text" shows the text as sanitized Markdown + math, again whenever it
+      // changes. Alpine's CSP build forbids x-html, which would insert any HTML at all.
+      Alpine.directive("markdown", (el, { expression }, { effect, evaluateLater }) => {
+        const getText = evaluateLater(expression);
+        effect(() => getText((text) => { el.innerHTML = renderMarkdown(text); }));
+      });
+      // The CSP build only knows components registered by name
+      Alpine.data("chatApp", chatApp);
+    });
   </script>
 </body>
 </html>

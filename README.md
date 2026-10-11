@@ -133,10 +133,12 @@ Every message costs OpenAI credits, so the app protects them:
 - **CSRF protection**: `/chat-stream` rejects requests that other websites trigger from your browser (the browser marks them with the `Sec-Fetch-Site` header). Messages are also JSON, which another site can't send without a CORS preflight, and FastAPI ignores JSON bodies labeled as anything else. There is no CORS middleware, since the UI is served from the same origin.
 - **Safe rendering of replies**: the model's output is untrusted, so the Markdown HTML goes through [DOMPurify](https://github.com/cure53/DOMPurify) with an allowlist: no scripts, images, styles, classes or Alpine attributes, so a reply can't run code, restyle the page or send data to other sites. Math is cut out first and rendered by KaTeX, whose risky commands (`\href`, `\htmlData`, ...) stay disabled.
 - **Pinned frontend libraries**: every script and stylesheet loaded from a CDN has an exact version and a [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity) hash, so the browser rejects any modified file; a test fails if one is missing. The page's own styles are plain CSS in `index.html`.
+- **Content Security Policy**: the page only runs scripts and styles that carry a nonce generated for each load, with neither `'unsafe-inline'` nor `'unsafe-eval'` for scripts. If HTML ever got past DOMPurify, the browser would still refuse to run it. That is why the page uses Alpine's [CSP build](https://alpinejs.dev/advanced/csp), which evaluates expressions without `eval()`, and an `x-markdown` directive instead of `x-html`, which the CSP build forbids.
+- **Security headers on every response**: `frame-ancestors 'none'` and `X-Frame-Options: DENY` (no other site can embed the chat in a frame, which blocks clickjacking), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cross-Origin-Opener-Policy: same-origin`.
 
 If you expose the app beyond your machine:
 
-- **Serve it over HTTPS** (e.g. behind a reverse proxy). HTTP Basic sends the password with every request, encoded but not encrypted.
+- **Serve it over HTTPS** (e.g. behind a reverse proxy, which can also send `Strict-Transport-Security`). HTTP Basic sends the password with every request, encoded but not encrypted.
 - **Run a single process.** Rate limits are kept in memory, so each process counts on its own and they reset on restart.
 
 ---
@@ -208,7 +210,7 @@ fastapi-ai-assistant/
   - A chat interface styled with plain CSS, with **Alpine.js** for reactivity.
   - Sends each message with `fetch` and reads the SSE reply as it streams in (`readServerSentEvents()`, since `EventSource` can only send `GET` requests). It keeps the conversation id sent by the server.
   - Displays real-time tokens as they arrive and offers a **Stop** button.
-  - Renders replies as sanitized Markdown with KaTeX math (`renderMarkdown()`); your own messages are shown as plain text.
+  - Renders replies as sanitized Markdown with KaTeX math (the `x-markdown` directive, through `renderMarkdown()`); your own messages are shown as plain text.
 
 ---
 

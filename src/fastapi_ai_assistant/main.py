@@ -2,12 +2,14 @@
 
 import logging
 import math
+import secrets
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Annotated
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware import Middleware
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from openai import AsyncOpenAI, OpenAIError
@@ -16,7 +18,9 @@ from sse_starlette import EventSourceResponse  # SSE streaming utility
 
 from fastapi_ai_assistant.security import (
     MAX_PROMPT_CHARS,
+    SecurityHeaders,
     authenticate,
+    page_policy,
     rate_limiter,
     reject_cross_site,
 )
@@ -116,16 +120,21 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    middleware=[Middleware(SecurityHeaders)],
 )
 
 
 @app.get("/", response_class=HTMLResponse)
 def get_index(request: Request):
     """
-    Return the main page (Jinja template).
+    Return the main page (Jinja template), with a new nonce for its Content Security Policy.
     """
+    nonce = secrets.token_urlsafe(16)
     return templates.TemplateResponse(
-        request, "index.html", {"root_prefix": root_prefix, "max_prompt_chars": MAX_PROMPT_CHARS}
+        request,
+        "index.html",
+        {"root_prefix": root_prefix, "max_prompt_chars": MAX_PROMPT_CHARS, "csp_nonce": nonce},
+        headers={"Content-Security-Policy": page_policy(nonce)},
     )
 
 

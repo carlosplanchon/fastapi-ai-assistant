@@ -32,9 +32,9 @@ async def chat(client, **message) -> list[tuple[str, str]]:
     return parse_sse(response.text)
 
 
-class ExternalFiles(HTMLParser):
+class ScriptsAndStyles(HTMLParser):
     """
-    Collects the scripts and stylesheets a page loads from other sites.
+    Collects the attributes of every <script>, <style> and stylesheet <link> in a page.
     """
 
     def __init__(self) -> None:
@@ -43,14 +43,23 @@ class ExternalFiles(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
-        if tag == "script":
-            url = attrs.get("src")
-        elif tag == "link" and "stylesheet" in (attrs.get("rel") or ""):
-            url = attrs.get("href")
-        else:
-            return
-        if url and urlsplit(url).netloc:  # Absolute URL: another site
+        if tag in ("script", "style") or (
+            tag == "link" and "stylesheet" in (attrs.get("rel") or "")
+        ):
             self.found.append(attrs)
+
+
+def scripts_and_styles(html: str) -> list[dict]:
+    parser = ScriptsAndStyles()
+    parser.feed(html)
+    return parser.found
+
+
+def csp_directives(policy: str) -> dict[str, str]:
+    """
+    "default-src 'none'; script-src 'nonce-x'" -> {"default-src": "'none'", "script-src": ...}
+    """
+    return dict(directive.strip().partition(" ")[::2] for directive in policy.split(";"))
 
 
 # --- Access control ---
@@ -84,13 +93,45 @@ async def test_index_renders_the_chat(client):
 async def test_files_from_other_sites_are_pinned_with_sri(client):
     # Whoever controls a CDN URL without an integrity hash can run code in the chat.
     response = await client.get("/")
-    external = ExternalFiles()
-    external.feed(response.text)
-    assert external.found  # The page does load its libraries from a CDN.
-    for attrs in external.found:
+    external = [
+        attrs
+        for attrs in scripts_and_styles(response.text)
+        if urlsplit(attrs.get("src") or attrs.get("href") or "").netloc  # Another site
+    ]
+    assert external  # The page does load its libraries from a CDN.
+    for attrs in external:
         url = attrs.get("src") or attrs.get("href")
         assert (attrs.get("integrity") or "").startswith("sha384-"), f"no SRI hash: {url}"
         assert attrs.get("crossorigin") == "anonymous", f"no crossorigin: {url}"
+
+
+async def test_page_has_a_strict_content_security_policy(client):
+    first, second = await client.get("/"), await client.get("/")
+    directives = csp_directives(first.headers["Content-Security-Policy"])
+    nonce = directives["script-src"].removeprefix("'nonce-").removesuffix("'")
+
+    # Only scripts with this response's nonce run: no 'unsafe-inline', no 'unsafe-eval'.
+    assert directives["script-src"] == f"'nonce-{nonce}'"
+    assert directives["default-src"] == "'none'"
+    assert directives["frame-ancestors"] == "'none'"
+    tags = scripts_and_styles(first.text)
+    assert tags and all(attrs.get("nonce") == nonce for attrs in tags)
+    # A new nonce on every load, so a nonce seen once is useless later.
+    assert second.headers["Content-Security-Policy"] != first.headers["Content-Security-Policy"]
+
+
+async def test_every_response_has_the_security_headers(client, anonymous_client):
+    responses = [
+        await client.get("/"),
+        await client.post("/chat-stream", json={"prompt": "hi"}, headers=SAME_ORIGIN),
+        await client.get("/no-such-page"),
+        await anonymous_client.get("/"),
+    ]
+    for response in responses:
+        assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["Referrer-Policy"] == "no-referrer"
 
 
 async def test_messages_cannot_travel_in_the_url(client, fake_openai):
