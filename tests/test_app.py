@@ -23,8 +23,8 @@ def connection_error() -> APIConnectionError:
     return APIConnectionError(request=httpx2.Request("POST", "https://api.openai.com/v1/responses"))
 
 
-async def chat(client, **params) -> list[tuple[str, str]]:
-    response = await client.get("/chat-stream", params=params, headers=SAME_ORIGIN)
+async def chat(client, **message) -> list[tuple[str, str]]:
+    response = await client.post("/chat-stream", json=message, headers=SAME_ORIGIN)
     assert response.status_code == 200
     return parse_sse(response.text)
 
@@ -32,9 +32,9 @@ async def chat(client, **params) -> list[tuple[str, str]]:
 # --- Access control ---
 
 
-@pytest.mark.parametrize("path", ["/", "/chat-stream?prompt=hi"])
-async def test_every_page_asks_for_credentials(anonymous_client, path):
-    response = await anonymous_client.get(path)
+@pytest.mark.parametrize(("method", "path"), [("GET", "/"), ("POST", "/chat-stream")])
+async def test_every_page_asks_for_credentials(anonymous_client, method, path):
+    response = await anonymous_client.request(method, path)
     assert response.status_code == 401
     assert response.headers["WWW-Authenticate"].startswith("Basic")
 
@@ -53,32 +53,49 @@ async def test_wrong_password_is_rejected(anonymous_client):
 async def test_index_renders_the_chat(client):
     response = await client.get("/")
     assert response.status_code == 200
-    assert "/chat-stream?prompt=" in response.text
+    assert "fetch(`/chat-stream`" in response.text
     assert 'maxlength="50"' in response.text
+
+
+async def test_messages_cannot_travel_in_the_url(client, fake_openai):
+    response = await client.get("/chat-stream", params={"prompt": "hi"}, headers=SAME_ORIGIN)
+    assert response.status_code == 405
+    assert fake_openai.response_calls == []
 
 
 @pytest.mark.parametrize("site", ["cross-site", "same-site"])
 async def test_requests_from_other_sites_are_rejected(client, fake_openai, site):
-    response = await client.get(
-        "/chat-stream", params={"prompt": "hi"}, headers={"Sec-Fetch-Site": site}
+    response = await client.post(
+        "/chat-stream", json={"prompt": "hi"}, headers={"Sec-Fetch-Site": site}
     )
     assert response.status_code == 403
     assert fake_openai.response_calls == []
 
 
-@pytest.mark.parametrize("prompt", ["", "x" * 51])
-async def test_prompt_length_is_limited(client, fake_openai, prompt):
-    response = await client.get("/chat-stream", params={"prompt": prompt}, headers=SAME_ORIGIN)
+async def test_json_sent_as_plain_text_is_rejected(client, fake_openai):
+    # A form on another site can send this body without a CORS preflight, but FastAPI only
+    # reads JSON from requests labeled as JSON: a second line of defense against CSRF.
+    response = await client.post(
+        "/chat-stream", content='{"prompt": "hi"}', headers={"Content-Type": "text/plain"}
+    )
     assert response.status_code == 422
     assert fake_openai.response_calls == []
 
 
-async def test_rate_limit_is_explained_in_the_chat(client, fake_openai):
+@pytest.mark.parametrize("prompt", ["", "x" * 51])
+async def test_prompt_length_is_limited(client, fake_openai, prompt):
+    response = await client.post("/chat-stream", json={"prompt": prompt}, headers=SAME_ORIGIN)
+    assert response.status_code == 422
+    assert fake_openai.response_calls == []
+
+
+async def test_rate_limit_answers_429_with_the_wait(client, fake_openai):
     for _ in range(3):  # MESSAGES_PER_MINUTE in config.test.toml
         await chat(client, prompt="hi")
-    events = await chat(client, prompt="hi")
-    assert chat_text(events).startswith("[Error: message limit reached. Try again in")
-    assert events[-1] == ("message", "[DONE]")
+    response = await client.post("/chat-stream", json={"prompt": "hi"}, headers=SAME_ORIGIN)
+    assert response.status_code == 429
+    assert response.json()["detail"].startswith("Message limit reached. Try again in")
+    assert int(response.headers["Retry-After"]) > 0
     assert len(fake_openai.response_calls) == 3
 
 

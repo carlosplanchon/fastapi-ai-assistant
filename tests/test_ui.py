@@ -163,3 +163,53 @@ def test_follow_up_messages_continue_the_conversation(page, server_url, fake_ope
 
     assert fake_openai.conversations_created == 1
     assert [call["conversation"] for call in fake_openai.response_calls] == ["conv_1", "conv_1"]
+
+
+def test_messages_travel_in_the_request_body(page, server_url, fake_openai):
+    requests = []
+    page.on("request", lambda request: requests.append(request))
+    page.goto(server_url)
+    send(page, "a very private question")
+    last_reply(page, "Hello there")
+
+    assert [request.url for request in requests if "private" in request.url] == []
+    [chat_request] = [request for request in requests if request.url.endswith("/chat-stream")]
+    assert chat_request.method == "POST"
+    assert chat_request.post_data_json == {
+        "prompt": "a very private question",
+        "conversation_id": None,
+    }
+
+
+def test_message_limit_is_shown_in_the_chat(page, server_url, fake_openai):
+    page.goto(server_url)
+    for number in range(3):  # MESSAGES_PER_MINUTE in config.test.toml
+        send(page, f"Message {number}")
+        expect(page.locator(".markdown")).to_have_count(number + 1)
+        last_reply(page, "Hello there")
+    send(page, "One too many")
+    expect(page.locator(".markdown")).to_have_count(4)
+    last_reply(page, "[Error: Message limit reached. Try again in")
+    assert len(fake_openai.response_calls) == 3
+
+
+def test_event_reader_handles_line_breaks_split_across_chunks(page, server_url):
+    page.goto(server_url)
+    events = page.evaluate("""async () => {
+        // "\\r\\n" cut in two, LF-only lines and a comment, as a network could deliver them.
+        const chunks = ["event: conversation\\r", "\\ndata: conv_1\\r\\n\\r", "\\ndata: a\\r\\n",
+                        "data: b\\n\\n", ": ping\\r\\n\\r\\n"];
+        const body = new ReadableStream({
+            start(controller) {
+                for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
+                controller.close();
+            },
+        });
+        const events = [];
+        for await (const event of readServerSentEvents(body)) events.push(event);
+        return events;
+    }""")
+    assert events == [
+        {"type": "conversation", "data": "conv_1"},
+        {"type": "message", "data": "a\nb"},
+    ]

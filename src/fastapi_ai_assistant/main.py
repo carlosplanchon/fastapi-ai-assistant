@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import Annotated
 
 import uvicorn
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from openai import AsyncOpenAI, OpenAIError
+from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse  # SSE streaming utility
 
 from fastapi_ai_assistant.security import (
@@ -82,14 +83,6 @@ async def stream_reply(prompt: str, conversation_id: str | None) -> AsyncIterato
     yield {"data": "[DONE]"}
 
 
-async def notice(text: str) -> AsyncIterator[dict[str, str]]:
-    """
-    Reply with a fixed message instead of asking OpenAI.
-    """
-    yield {"data": text}
-    yield {"data": "[DONE]"}
-
-
 def format_wait(seconds: float) -> str:
     """
     Round a wait up to a short human unit, e.g. "40 s", "3 min" or "5 h".
@@ -136,27 +129,30 @@ def get_index(request: Request):
     )
 
 
-@app.get(
+class ChatMessage(BaseModel):
+    # In the request body rather than the URL, so messages don't end up in access logs.
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    conversation_id: str | None = None
+
+
+@app.post(
     "/chat-stream",
     response_class=EventSourceResponse,
     dependencies=[Depends(reject_cross_site)],
 )
-async def chat_stream(
-    username: Annotated[str, Depends(authenticate)],
-    prompt: Annotated[str, Query(min_length=1, max_length=MAX_PROMPT_CHARS)],
-    conversation_id: str | None = None,
-):
+async def chat_stream(username: Annotated[str, Depends(authenticate)], message: ChatMessage):
     """
     This endpoint uses SSE to stream AI responses in real time.
     """
     wait = rate_limiter.acquire(username)
     if wait:
         logger.warning("Rate limit reached for user %r", username)
-        # Explained inside the stream, because EventSource can't read HTTP error responses.
-        return EventSourceResponse(
-            notice(f"[Error: message limit reached. Try again in {format_wait(wait)}.]")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Message limit reached. Try again in {format_wait(wait)}.",
+            headers={"Retry-After": str(math.ceil(wait))},
         )
-    return EventSourceResponse(stream_reply(prompt, conversation_id))
+    return EventSourceResponse(stream_reply(message.prompt, message.conversation_id))
 
 
 def main() -> None:

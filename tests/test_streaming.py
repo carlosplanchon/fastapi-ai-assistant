@@ -8,7 +8,7 @@ from support import AUTH, text_delta
 
 def stream_chat(server_url):
     return httpx2.stream(
-        "GET", f"{server_url}/chat-stream", params={"prompt": "hi"}, auth=AUTH, timeout=10
+        "POST", f"{server_url}/chat-stream", json={"prompt": "hi"}, auth=AUTH, timeout=10
     )
 
 

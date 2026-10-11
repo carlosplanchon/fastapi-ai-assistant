@@ -26,7 +26,7 @@ This repository contains a **FastAPI** application that streams answers from an 
 1. **Start a Conversation**  
    On the first message, the server creates a conversation (`client.conversations.create()`) and sends its id to the browser as a `conversation` SSE event.
 2. **Send a Message**  
-   The browser opens `GET /chat-stream?prompt=...&conversation_id=...` and the server calls `client.responses.create(..., conversation=conversation_id, stream=True)`. OpenAI prepends the conversation history and stores the new turn automatically.
+   The browser sends `POST /chat-stream` with the message as JSON (`{"prompt": ..., "conversation_id": ...}`), and the server calls `client.responses.create(..., conversation=conversation_id, stream=True)`. OpenAI prepends the conversation history and stores the new turn automatically.
 3. **Stream the Answer**  
    Each `response.output_text.delta` event is forwarded to the browser as an SSE message, followed by a final `[DONE]`.
 4. **Run Code When Needed**  
@@ -43,7 +43,7 @@ This repository contains a **FastAPI** application that streams answers from an 
 3. **FastAPI + Alpine.js**  
    Lightweight Python backend with a minimal, reactive JavaScript frontend.
 4. **Stop Generation**  
-   A **Stop** button in the UI closes the SSE connection; the server then cancels the stream and closes its connection to OpenAI.
+   A **Stop** button in the UI aborts the request; the server then cancels the stream and closes its connection to OpenAI.
 5. **Error Handling**  
    If OpenAI fails, the error is logged on the server, shown in the chat, and the stream ends cleanly.
 6. **Access Control**  
@@ -128,8 +128,9 @@ The app reads `config.toml` from the current directory. To use another file, set
 Every message costs OpenAI credits, so the app protects them:
 
 - **Authentication**: every page and endpoint requires the HTTP Basic credentials from `config.toml`, compared in constant time. FastAPI's automatic API docs (`/docs`, `/redoc`, `/openapi.json`) are turned off, because FastAPI would serve them without credentials.
-- **Rate limits**: per-user caps per minute and per day, plus a maximum message length.
-- **CSRF protection**: `/chat-stream` rejects requests that other websites trigger from your browser (the browser marks them with the `Sec-Fetch-Site` header). There is no CORS middleware, since the UI is served from the same origin.
+- **Rate limits**: per-user caps per minute and per day (past them the server answers `429` with a `Retry-After` header), plus a maximum message length.
+- **Messages stay out of URLs**: they travel in the body of a `POST`, so they don't show up in the access logs of uvicorn or of a proxy.
+- **CSRF protection**: `/chat-stream` rejects requests that other websites trigger from your browser (the browser marks them with the `Sec-Fetch-Site` header). Messages are also JSON, which another site can't send without a CORS preflight, and FastAPI ignores JSON bodies labeled as anything else. There is no CORS middleware, since the UI is served from the same origin.
 - **Safe rendering of replies**: the model's output is untrusted, so the Markdown HTML goes through [DOMPurify](https://github.com/cure53/DOMPurify) with an allowlist: no scripts, images, styles, classes or Alpine attributes, so a reply can't run code, restyle the page or send data to other sites. Math is cut out first and rendered by KaTeX, whose risky commands (`\href`, `\htmlData`, ...) stay disabled.
 - **Pinned frontend libraries**: the CDN scripts load exact versions with [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity) hashes, so the browser rejects any modified file. The exception is the Tailwind Play CDN, which is meant for demos.
 
@@ -137,7 +138,6 @@ If you expose the app beyond your machine:
 
 - **Serve it over HTTPS** (e.g. behind a reverse proxy). HTTP Basic sends the password with every request, encoded but not encrypted.
 - **Run a single process.** Rate limits are kept in memory, so each process counts on its own and they reset on restart.
-- **Messages travel in the URL** (`/chat-stream?prompt=...`), so they can show up in proxy or access logs.
 
 ---
 
@@ -202,11 +202,11 @@ fastapi-ai-assistant/
   - **Response Streaming**: `await client.responses.create(..., stream=True)`, consumed with `async for`.
   - **FastAPI Endpoints**:
     - `GET /`: Serves the chat UI.
-    - `GET /chat-stream?prompt=...&conversation_id=...`: Streams the AI response via SSE.
+    - `POST /chat-stream` (JSON body with `prompt` and `conversation_id`): Streams the AI response via SSE.
 
 - **`index.html`**:
   - A Tailwind-styled chat interface with **Alpine.js** for reactivity.
-  - Subscribes to the `/chat-stream` endpoint using `EventSource` and keeps the conversation id sent by the server.
+  - Sends each message with `fetch` and reads the SSE reply as it streams in (`readServerSentEvents()`, since `EventSource` can only send `GET` requests). It keeps the conversation id sent by the server.
   - Displays real-time tokens as they arrive and offers a **Stop** button.
   - Renders replies as sanitized Markdown with KaTeX math (`renderMarkdown()`); your own messages are shown as plain text.
 

@@ -168,11 +168,39 @@
       );
     }
 
+    // Reads a fetch() response body as Server-Sent Events and yields { type, data } for each.
+    // (EventSource does this by itself, but it can only send GET requests.)
+    async function* readServerSentEvents(body) {
+      const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      let type = "message";
+      let data = [];
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        buffer += value;
+        // Lines end with \r\n, \n or \r. A \r at the very end may be half of a \r\n: wait for more.
+        const lines = buffer.split(/\r\n|\n|\r(?!$)/);
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (line === "") {  // A blank line ends the event
+            if (data.length) yield { type, data: data.join("\n") };
+            type = "message";
+            data = [];
+          } else if (line.startsWith("data:")) {
+            data.push(line.slice(5).replace(/^ /, ""));
+          } else if (line.startsWith("event:")) {
+            type = line.slice(6).replace(/^ /, "");
+          }
+        }
+      }
+    }
+
     function chatApp() {
       return {
         messages: [],
         newMessage: "",
-        currentEventSource: null,
+        currentRequest: null,  // AbortController of the reply being streamed
         streaming: false,
         conversationId: null,  // Sent by the server with the first reply
 
@@ -183,58 +211,56 @@
           // 1) Push the user's message to the list
           this.messages.push({ sender: "user", text: prompt });
           this.newMessage = "";
-
-          // 2) Create an SSE connection (continuing our conversation, if any)
-          let url = `{{ root_prefix }}/chat-stream?prompt=${encodeURIComponent(prompt)}`;
-          if (this.conversationId) {
-            url += `&conversation_id=${encodeURIComponent(this.conversationId)}`;
-          }
-          const eventSource = new EventSource(url);
-
-          this.currentEventSource = eventSource;
           this.streaming = true;
+          this.currentRequest = new AbortController();
 
-          // The first reply starts a conversation: keep its id for the next messages
-          eventSource.addEventListener("conversation", (event) => {
-            this.conversationId = event.data;
-          });
+          // The assistant's message, created when the first text arrives
+          let reply = null;
+          const show = (text) => {
+            if (reply === null) {
+              reply = this.messages[this.messages.push({ sender: "assistant", text: "" }) - 1];
+            }
+            reply.text += text;
+          };
 
-          // We'll store the partial response for the assistant here
-          let assistantIndex = null;
-
-          eventSource.onmessage = (event) => {
-            const chunk = event.data;
-
-            // If the chunk is "[DONE]", close the SSE stream
-            if (chunk === "[DONE]") {
-              this.stopStreaming();  // close and reset
+          try {
+            // 2) POST the message (in the body, so it stays out of URLs and logs)
+            //    and read the reply while it streams in
+            const response = await fetch(`{{ root_prefix }}/chat-stream`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt, conversation_id: this.conversationId }),
+              signal: this.currentRequest.signal,
+            });
+            if (!response.ok) {  // E.g. the message limit (429)
+              const error = await response.json().catch(() => ({}));
+              show(`[Error: ${typeof error.detail === "string" ? error.detail : `HTTP ${response.status}`}]`);
               return;
             }
-
-            // If we haven't created an "assistant" message yet, do so now
-            if (assistantIndex === null) {
-              assistantIndex = this.messages.push({
-                sender: "assistant",
-                text: ""
-              }) - 1; // store the new message's index
+            for await (const event of readServerSentEvents(response.body)) {
+              if (event.type === "conversation") {
+                // The first reply starts a conversation: keep its id for the next messages
+                this.conversationId = event.data;
+              } else if (event.data === "[DONE]") {
+                break;
+              } else {
+                show(event.data);
+              }
             }
-
-            // Append the chunk to the assistant's text
-            this.messages[assistantIndex].text += chunk;
-          };
-
-          eventSource.onerror = (error) => {
-            console.error("SSE error:", error);
-            this.stopStreaming();
-          };
+          } catch (error) {
+            if (error.name !== "AbortError") {  // Stop aborts on purpose
+              console.error("Chat request failed:", error);
+              show("\n[Error: could not reach the server.]");
+            }
+          } finally {
+            this.currentRequest = null;
+            this.streaming = false;
+          }
         },
 
         stopStreaming() {
-          if (this.currentEventSource) {
-            this.currentEventSource.close();
-            this.currentEventSource = null;
-          }
-          this.streaming = false;
+          // Closing the connection makes the server stop asking OpenAI too
+          this.currentRequest?.abort();
         },
       };
     }
