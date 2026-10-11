@@ -42,6 +42,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "httpx2",  # HTTP client used by the tests.
+    "pytest-playwright",  # Browser tests (pytest -m ui).
     "black",
     "ruff",
     "mypy",
@@ -97,4 +98,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src --cov-report=term-missing"
+# Browser tests need Chromium (`playwright install chromium`), so they only run with -m ui.
+addopts = "-v --cov=src --cov-report=term-missing -m 'not ui'"
+markers = ["ui: drives the chat page in a real browser (run with: pytest -m ui)"]

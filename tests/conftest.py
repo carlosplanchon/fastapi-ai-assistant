@@ -1,8 +1,11 @@
 import os
+import threading
+import time
 from pathlib import Path
 
 import httpx2
 import pytest
+import uvicorn
 
 # The app reads its config and creates its OpenAI client on import, so set both up first.
 # The fake key makes any request that could reach the real API fail right away.
@@ -54,3 +57,22 @@ async def anonymous_client(anyio_backend):
     transport = httpx2.ASGITransport(app=main.app)
     async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
+
+
+@pytest.fixture
+def server_url():
+    """
+    Run the app with uvicorn in a background thread, on a free port.
+    """
+    config = uvicorn.Config(main.app, host="127.0.0.1", port=0, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started:
+        assert time.monotonic() < deadline, "uvicorn did not start"
+        time.sleep(0.01)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    yield f"http://127.0.0.1:{port}"
+    server.should_exit = True
+    thread.join(timeout=10)

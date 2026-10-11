@@ -153,7 +153,14 @@ uv run black --check .   # Formatting
 uv run mypy src          # Type checks
 ```
 
-GitHub Actions runs these checks on every push to `main` and on every pull request, with Python 3.11 to 3.14. It also builds the wheel and checks that it ships the chat template. See `.github/workflows/ci.yml`.
+The browser tests drive the chat page in Chromium through [Playwright](https://playwright.dev/python/): Markdown and math rendering, the HTML sanitizing against injection attempts, the Stop button and conversations. They need Chromium and an internet connection (the page loads its libraries from a CDN), so `pytest` skips them unless you select them:
+
+```bash
+uv run playwright install chromium   # Once
+uv run pytest -m ui
+```
+
+GitHub Actions runs all these checks on every push to `main` and on every pull request, with Python 3.11 to 3.14. It also builds the wheel and checks that it ships the chat template. See `.github/workflows/ci.yml`.
 
 Dependabot opens weekly pull requests to update the CI actions and `uv.lock`, skipping releases younger than a week (security fixes are not delayed). It doesn't cover the frontend libraries in `index.html`: to update one, change its version and its `integrity` hash together.
 
@@ -184,7 +191,7 @@ fastapi-ai-assistant/
 │       └── index.html      # Chat UI (Alpine.js, TailwindCSS, marked, KaTeX, DOMPurify)
 ├── scripts/
 │   └── smoke_test.py       # Checks against the real OpenAI API (spends credit)
-├── tests/                  # pytest suite, with a fake OpenAI client
+├── tests/                  # pytest suite with a fake OpenAI client (test_ui.py: browser tests)
 ├── config.template.toml    # Copy it to config.toml
 ├── pyproject.toml          # Project metadata and dependencies
 └── uv.lock                 # Pinned dependency versions

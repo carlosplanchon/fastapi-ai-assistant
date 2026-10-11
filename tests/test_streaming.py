@@ -1,33 +1,9 @@
 """End-to-end checks against a real uvicorn server, where the streaming actually happens."""
 
-import threading
 import time
 
 import httpx2
-import pytest
-import uvicorn
 from support import AUTH, text_delta
-
-from fastapi_ai_assistant import main
-
-
-@pytest.fixture
-def server_url():
-    """
-    Run the app with uvicorn in a background thread, on a free port.
-    """
-    config = uvicorn.Config(main.app, host="127.0.0.1", port=0, log_level="warning")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 10
-    while not server.started:
-        assert time.monotonic() < deadline, "uvicorn did not start"
-        time.sleep(0.01)
-    port = server.servers[0].sockets[0].getsockname()[1]
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=10)
 
 
 def stream_chat(server_url):
