@@ -68,19 +68,20 @@
     .composer input {
       width: 100%; padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem;
     }
-    .composer input::placeholder { color: #9ca3af; opacity: 1; }
+    /* Text colors keep at least the 4.5:1 contrast that WCAG AA asks for. */
+    .composer input::placeholder { color: #6b7280; opacity: 1; }
     .composer button { padding: 0.5rem 1rem; border-radius: 0.25rem; color: #fff; }
-    .send { background: #3b82f6; }
-    .send:hover { background: #2563eb; }
-    .stop { background: #ef4444; }
-    .stop:hover { background: #dc2626; }
+    .send { background: #2563eb; }
+    .send:hover { background: #1d4ed8; }
+    .stop { background: #dc2626; }
+    .stop:hover { background: #b91c1c; }
 
     /* Replies rendered from Markdown */
     .markdown :is(p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table, hr) { margin: 0; }
     .markdown > :not(:first-child) { margin-top: 0.5rem; }
     .markdown :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 600; }
     .markdown :is(ul, ol) { padding-left: 1.25rem; }
-    .markdown a { color: #2563eb; text-decoration: underline; }
+    .markdown a { color: #1d4ed8; text-decoration: underline; }
     .markdown :is(code, pre) {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
         "Courier New", monospace;
