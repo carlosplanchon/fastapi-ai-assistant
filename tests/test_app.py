@@ -1,3 +1,6 @@
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
+
 import httpx2
 import pytest
 from openai import APIConnectionError
@@ -29,6 +32,27 @@ async def chat(client, **message) -> list[tuple[str, str]]:
     return parse_sse(response.text)
 
 
+class ExternalFiles(HTMLParser):
+    """
+    Collects the scripts and stylesheets a page loads from other sites.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[dict] = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "script":
+            url = attrs.get("src")
+        elif tag == "link" and "stylesheet" in (attrs.get("rel") or ""):
+            url = attrs.get("href")
+        else:
+            return
+        if url and urlsplit(url).netloc:  # Absolute URL: another site
+            self.found.append(attrs)
+
+
 # --- Access control ---
 
 
@@ -55,6 +79,18 @@ async def test_index_renders_the_chat(client):
     assert response.status_code == 200
     assert "fetch(`/chat-stream`" in response.text
     assert 'maxlength="50"' in response.text
+
+
+async def test_files_from_other_sites_are_pinned_with_sri(client):
+    # Whoever controls a CDN URL without an integrity hash can run code in the chat.
+    response = await client.get("/")
+    external = ExternalFiles()
+    external.feed(response.text)
+    assert external.found  # The page does load its libraries from a CDN.
+    for attrs in external.found:
+        url = attrs.get("src") or attrs.get("href")
+        assert (attrs.get("integrity") or "").startswith("sha384-"), f"no SRI hash: {url}"
+        assert attrs.get("crossorigin") == "anonymous", f"no crossorigin: {url}"
 
 
 async def test_messages_cannot_travel_in_the_url(client, fake_openai):

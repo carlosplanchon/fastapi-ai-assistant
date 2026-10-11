@@ -17,7 +17,7 @@ This repository contains a **FastAPI** application that streams answers from an 
 - **FastAPI**  
   We wrap the OpenAI calls in a FastAPI server with an SSE endpoint for real-time token streaming. It uses the async OpenAI client, so the server keeps serving other requests while a reply is being generated.
 - **Streaming Chat UI**  
-  A simple front-end using **Alpine.js** & **TailwindCSS** to let users enter a prompt, see the streamed tokens in real time, and stop the generation if desired.
+  A simple front-end using **Alpine.js** and plain CSS to let users enter a prompt, see the streamed tokens in real time, and stop the generation if desired.
 
 ---
 
@@ -132,7 +132,7 @@ Every message costs OpenAI credits, so the app protects them:
 - **Messages stay out of URLs**: they travel in the body of a `POST`, so they don't show up in the access logs of uvicorn or of a proxy.
 - **CSRF protection**: `/chat-stream` rejects requests that other websites trigger from your browser (the browser marks them with the `Sec-Fetch-Site` header). Messages are also JSON, which another site can't send without a CORS preflight, and FastAPI ignores JSON bodies labeled as anything else. There is no CORS middleware, since the UI is served from the same origin.
 - **Safe rendering of replies**: the model's output is untrusted, so the Markdown HTML goes through [DOMPurify](https://github.com/cure53/DOMPurify) with an allowlist: no scripts, images, styles, classes or Alpine attributes, so a reply can't run code, restyle the page or send data to other sites. Math is cut out first and rendered by KaTeX, whose risky commands (`\href`, `\htmlData`, ...) stay disabled.
-- **Pinned frontend libraries**: the CDN scripts load exact versions with [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity) hashes, so the browser rejects any modified file. The exception is the Tailwind Play CDN, which is meant for demos.
+- **Pinned frontend libraries**: every script and stylesheet loaded from a CDN has an exact version and a [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity) hash, so the browser rejects any modified file; a test fails if one is missing. The page's own styles are plain CSS in `index.html`.
 
 If you expose the app beyond your machine:
 
@@ -188,7 +188,7 @@ fastapi-ai-assistant/
 │   ├── security.py         # Authentication, CSRF check and rate limits
 │   ├── shared.py           # Loads config.toml
 │   └── templates/
-│       └── index.html      # Chat UI (Alpine.js, TailwindCSS, marked, KaTeX, DOMPurify)
+│       └── index.html      # Chat UI (Alpine.js, marked, KaTeX, DOMPurify, plain CSS)
 ├── scripts/
 │   └── smoke_test.py       # Checks against the real OpenAI API (spends credit)
 ├── tests/                  # pytest suite with a fake OpenAI client (test_ui.py: browser tests)
@@ -205,7 +205,7 @@ fastapi-ai-assistant/
     - `POST /chat-stream` (JSON body with `prompt` and `conversation_id`): Streams the AI response via SSE.
 
 - **`index.html`**:
-  - A Tailwind-styled chat interface with **Alpine.js** for reactivity.
+  - A chat interface styled with plain CSS, with **Alpine.js** for reactivity.
   - Sends each message with `fetch` and reads the SSE reply as it streams in (`readServerSentEvents()`, since `EventSource` can only send `GET` requests). It keeps the conversation id sent by the server.
   - Displays real-time tokens as they arrive and offers a **Stop** button.
   - Renders replies as sanitized Markdown with KaTeX math (`renderMarkdown()`); your own messages are shown as plain text.

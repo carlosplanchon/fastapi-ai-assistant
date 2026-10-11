@@ -3,8 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <title>AI Chat App</title>
-  <!-- TailwindCSS (CDN for demo) -->
-  <script src="https://cdn.tailwindcss.com"></script>
   <!-- Markdown, math and HTML sanitizing for the replies. Exact versions with SRI hashes:
        the browser refuses a file that differs from the one reviewed. -->
   <link
@@ -36,39 +34,83 @@
     crossorigin="anonymous"
   ></script>
   <style>
-    /* Tailwind's reset strips the default look of Markdown; bring back the basics. */
-    .markdown > * + * { margin-top: 0.5rem; }
-    .markdown ul { list-style: disc; padding-left: 1.25rem; }
-    .markdown ol { list-style: decimal; padding-left: 1.25rem; }
-    .markdown h1, .markdown h2, .markdown h3, .markdown h4 { font-weight: 600; }
+    /* Plain CSS, so the page loads no stylesheet code from third parties.
+       The base rules give every browser the same starting point. */
+    *, *::before, *::after { box-sizing: border-box; }
+    html {
+      font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+        "Segoe UI Symbol", "Noto Color Emoji";
+      line-height: 1.5;
+    }
+    body { margin: 0; padding: 2.5rem 0; background: #f3f4f6; }
+    button, input { margin: 0; font: inherit; color: inherit; }
+    button { border: 0; cursor: pointer; }
+    button:disabled { cursor: default; }
+
+    /* Chat card and messages */
+    .chat {
+      max-width: 42rem; margin: 0 auto; padding: 1rem; background: #fff; border-radius: 0.25rem;
+      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    }
+    .title { margin: 0 0 1rem; font-size: 1.5rem; line-height: 2rem; font-weight: 700; }
+    .messages { max-height: 24rem; overflow-y: auto; margin-bottom: 1rem; }
+    .message { margin-top: 0.5rem; }
+    .message.from-user { text-align: right; }
+    .bubble {
+      display: inline-block; max-width: 100%; padding: 0.5rem 0.75rem; border-radius: 0.25rem;
+      text-align: left; background: #e5e7eb; color: #374151;
+    }
+    .from-user .bubble { background: #dbeafe; color: #1d4ed8; }
+    .user-text { white-space: pre-wrap; }
+
+    /* Message box and buttons */
+    .composer { display: flex; align-items: center; gap: 0.5rem; }
+    .composer input {
+      width: 100%; padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem;
+    }
+    .composer input::placeholder { color: #9ca3af; opacity: 1; }
+    .composer button { padding: 0.5rem 1rem; border-radius: 0.25rem; color: #fff; }
+    .send { background: #3b82f6; }
+    .send:hover { background: #2563eb; }
+    .stop { background: #ef4444; }
+    .stop:hover { background: #dc2626; }
+
+    /* Replies rendered from Markdown */
+    .markdown :is(p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table, hr) { margin: 0; }
+    .markdown > :not(:first-child) { margin-top: 0.5rem; }
+    .markdown :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 600; }
+    .markdown :is(ul, ol) { padding-left: 1.25rem; }
     .markdown a { color: #2563eb; text-decoration: underline; }
+    .markdown :is(code, pre) {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+        "Courier New", monospace;
+      font-size: 1em;
+    }
     .markdown code { background: rgba(0, 0, 0, 0.07); border-radius: 0.25rem; padding: 0 0.25rem; }
-    .markdown pre { background: #1f2937; color: #f9fafb; border-radius: 0.375rem; padding: 0.5rem 0.75rem; overflow-x: auto; }
+    .markdown pre {
+      background: #1f2937; color: #f9fafb; border-radius: 0.375rem; padding: 0.5rem 0.75rem;
+      overflow-x: auto;
+    }
     .markdown pre code { background: none; padding: 0; }
     .markdown blockquote { border-left: 3px solid #d1d5db; padding-left: 0.75rem; }
-    .markdown th, .markdown td { border: 1px solid #d1d5db; padding: 0.125rem 0.5rem; }
+    .markdown table { border-collapse: collapse; }
+    .markdown :is(th, td) { border: 1px solid #d1d5db; padding: 0.125rem 0.5rem; }
+    .markdown hr { border: 0; border-top: 1px solid #d1d5db; }
     .markdown .katex-display { overflow-x: auto; overflow-y: hidden; }
   </style>
 </head>
-<body class="bg-gray-100 py-10">
-  <div class="max-w-2xl mx-auto p-4 bg-white rounded shadow" x-data="chatApp()">
-    <h1 class="text-2xl font-bold mb-4">AI Chat</h1>
+<body>
+  <div class="chat" x-data="chatApp()">
+    <h1 class="title">AI Chat</h1>
 
     <!-- The conversation messages -->
-    <div class="space-y-2 mb-4 max-h-96 overflow-y-auto">
+    <div class="messages">
       <template x-for="(msg, idx) in messages" :key="idx">
-        <div
-          :class="msg.sender === 'user' ? 'text-right' : 'text-left'"
-        >
-          <div
-            class="inline-block max-w-full px-3 py-2 rounded text-left"
-            :class="msg.sender === 'user'
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-gray-200 text-gray-700'"
-          >
+        <div class="message" :class="{ 'from-user': msg.sender === 'user' }">
+          <div class="bubble">
             <!-- The user's text is shown as typed; replies are rendered as Markdown + math -->
             <template x-if="msg.sender === 'user'">
-              <span class="whitespace-pre-wrap" x-text="msg.text"></span>
+              <span class="user-text" x-text="msg.text"></span>
             </template>
             <template x-if="msg.sender === 'assistant'">
               <div class="markdown" x-html="renderMarkdown(msg.text)"></div>
@@ -79,18 +121,17 @@
     </div>
 
     <!-- Input and buttons area -->
-    <form @submit.prevent="sendMessage" class="flex items-center space-x-2">
+    <form @submit.prevent="sendMessage" class="composer">
       <input
         x-model="newMessage"
         type="text"
-        class="border border-gray-300 rounded px-2 py-1 w-full"
         placeholder="Type your message..."
         maxlength="{{ max_prompt_chars }}"
         :disabled="streaming"
       /> <!-- Optionally disable while streaming -->
       <button
         type="submit"
-        class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        class="send"
         :disabled="streaming"
       >
         Send
@@ -98,7 +139,7 @@
       <!-- Stop button -->
       <button
         type="button"
-        class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        class="stop"
         x-show="streaming"
         @click="stopStreaming"
       >
