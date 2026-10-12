@@ -1,10 +1,10 @@
-# fastapi_ai_assistant
+# fastapi-ai-assistant
 
 [![CI](https://github.com/carlosplanchon/fastapi-ai-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/carlosplanchon/fastapi-ai-assistant/actions/workflows/ci.yml)
+[![Python versions](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://github.com/carlosplanchon/fastapi-ai-assistant/blob/main/.github/workflows/ci.yml)
+[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/carlosplanchon/fastapi-ai-assistant)
 
 This repository contains a **FastAPI** application that streams answers from an AI math tutor built on the OpenAI **[Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)** and **[Conversations API](https://developers.openai.com/api/reference/resources/conversations/methods/create)**. Tokens reach the browser in real time through Server-Sent Events (SSE), and the model can write and run Python with the built-in **Code Interpreter** tool.
-
-> **Note:** earlier versions of this project followed the OpenAI *Assistants* QuickStart. OpenAI shut down the Assistants API on August 26, 2026, so the app now uses the Responses and Conversations APIs instead.
 
 ![Chat interface screenshot](assets/chat_screenshot.png)
 
