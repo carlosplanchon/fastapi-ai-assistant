@@ -1,7 +1,7 @@
 # fastapi-ai-assistant
 
 [![CI](https://github.com/carlosplanchon/fastapi-ai-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/carlosplanchon/fastapi-ai-assistant/actions/workflows/ci.yml)
-[![Python versions](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://github.com/carlosplanchon/fastapi-ai-assistant/blob/main/.github/workflows/ci.yml)
+[![Python versions](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14%20%7C%203.15-blue)](https://github.com/carlosplanchon/fastapi-ai-assistant/blob/main/.github/workflows/ci.yml)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/carlosplanchon/fastapi-ai-assistant)
 
 This repository contains a **FastAPI** application that streams answers from an AI math tutor built on the OpenAI **[Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)** and **[Conversations API](https://developers.openai.com/api/reference/resources/conversations/methods/create)**. Tokens reach the browser in real time through Server-Sent Events (SSE), and the model can write and run Python with the built-in **Code Interpreter** tool.
@@ -173,7 +173,7 @@ uv run playwright install chromium   # Once
 uv run pytest -m ui
 ```
 
-GitHub Actions runs all these checks on every push to `main` and on every pull request, with Python 3.11 to 3.14. It also checks that `static/app.css` is up to date, builds the wheel and checks that it ships the chat template and its stylesheet. See `.github/workflows/ci.yml`.
+GitHub Actions runs all these checks on every push to `main` and on every pull request, with Python 3.11 to 3.15. It also checks that `static/app.css` is up to date, builds the wheel and checks that it ships the chat template and its stylesheet. See `.github/workflows/ci.yml`.
 
 Dependabot opens weekly pull requests to update the CI actions and `uv.lock`, skipping releases younger than a week (security fixes are not delayed). It doesn't cover the frontend libraries in `index.html` (to update one, change its version and its `integrity` hash together) or the Tailwind CLI (see [Styles](#styles)).
 
