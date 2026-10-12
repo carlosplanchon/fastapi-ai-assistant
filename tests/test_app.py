@@ -65,7 +65,9 @@ def csp_directives(policy: str) -> dict[str, str]:
 # --- Access control ---
 
 
-@pytest.mark.parametrize(("method", "path"), [("GET", "/"), ("POST", "/chat-stream")])
+@pytest.mark.parametrize(
+    ("method", "path"), [("GET", "/"), ("GET", "/static/app.css"), ("POST", "/chat-stream")]
+)
 async def test_every_page_asks_for_credentials(anonymous_client, method, path):
     response = await anonymous_client.request(method, path)
     assert response.status_code == 401
@@ -88,6 +90,16 @@ async def test_index_renders_the_chat(client):
     assert response.status_code == 200
     assert "fetch(`/chat-stream`" in response.text
     assert 'maxlength="50"' in response.text
+
+
+async def test_page_loads_its_stylesheet_from_the_app(client):
+    page = await client.get("/")
+    assert "/static/app.css" in [attrs.get("href") for attrs in scripts_and_styles(page.text)]
+    response = await client.get("/static/app.css")
+    assert response.status_code == 200
+    # Sent with nosniff, so browsers only apply it if it's labeled as CSS.
+    assert response.headers["Content-Type"].startswith("text/css")
+    assert response.text.startswith("/*! tailwindcss")  # Built by scripts/build_css.py
 
 
 async def test_files_from_other_sites_are_pinned_with_sri(client):

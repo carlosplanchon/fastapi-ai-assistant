@@ -10,7 +10,7 @@ from typing import Annotated
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware import Middleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
@@ -100,6 +100,8 @@ def format_wait(seconds: float) -> str:
 
 # Setup Jinja2 templates (next to this file, so the app runs from any directory)
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+# The page's styles, built from tailwind.css by scripts/build_css.py
+STYLESHEET = Path(__file__).parent / "static" / "app.css"
 
 root_path: str = CONFIG["app"]["ROOT_PATH"]
 
@@ -133,6 +135,15 @@ def get_index(request: Request):
         {"root_prefix": root_prefix, "max_prompt_chars": MAX_PROMPT_CHARS, "csp_nonce": nonce},
         headers={"Content-Security-Policy": page_policy(nonce)},
     )
+
+
+@app.get("/static/app.css")
+def get_stylesheet() -> FileResponse:
+    """
+    Return the page's styles. A route rather than a StaticFiles mount: mounts skip the app's
+    dependencies, so they would serve their files without asking for the credentials.
+    """
+    return FileResponse(STYLESHEET)
 
 
 class ChatMessage(BaseModel):

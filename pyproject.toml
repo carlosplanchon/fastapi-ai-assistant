@@ -60,7 +60,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-fastapi_ai_assistant = ["templates/*.html"]
+fastapi_ai_assistant = ["templates/*.html", "static/*.css"]
 
 [tool.black]
 line-length = 100

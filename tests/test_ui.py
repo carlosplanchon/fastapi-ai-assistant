@@ -6,7 +6,6 @@ They don't run by default. Install Chromium once, then select them with -m ui:
     uv run pytest -m ui
 """
 
-import re
 import time
 
 import pytest
@@ -265,13 +264,13 @@ def test_page_cannot_be_embedded_in_another_site(page, server_url):
 # --- Accessibility ---
 
 
-def contrast(color_a: str, color_b: str) -> float:
+def contrast(color_a: list[int], color_b: list[int]) -> float:
     """
-    WCAG contrast ratio between two computed CSS colors, e.g. "rgb(37, 99, 235)".
+    WCAG contrast ratio between two sRGB colors, e.g. [37, 99, 235].
     """
 
-    def luminance(color: str) -> float:
-        channels = [float(value) / 255 for value in re.findall(r"[\d.]+", color)[:3]]
+    def luminance(color: list[int]) -> float:
+        channels = [value / 255 for value in color]
         r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
         return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
@@ -341,9 +340,17 @@ def test_colors_meet_wcag_contrast(page, server_url, fake_openai):
     send(page, "Show me some formatting")
     last_reply(page, "A link")
     colors = page.evaluate("""() => {
+        // Tailwind's colors are oklch(): painted on a canvas, they read back as sRGB values.
+        const canvas = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+        const rgb = (color) => {
+            canvas.clearRect(0, 0, 1, 1);
+            canvas.fillStyle = color;
+            canvas.fillRect(0, 0, 1, 1);
+            return [...canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+        };
         const style = (selector, pseudo) => getComputedStyle(document.querySelector(selector), pseudo);
         const replyBubble = style(".message:not(.from-user) .bubble").backgroundColor;
-        return {
+        const pairs = {
             reply: [style(".markdown").color, replyBubble],
             link: [style(".markdown a").color, replyBubble],
             user: [style(".user-text").color, style(".from-user .bubble").backgroundColor],
@@ -352,6 +359,9 @@ def test_colors_meet_wcag_contrast(page, server_url, fake_openai):
             placeholder: [style("#message", "::placeholder").color, style("#message").backgroundColor],
             border: [style("#message").borderTopColor, style(".chat").backgroundColor],
         };
+        return Object.fromEntries(
+            Object.entries(pairs).map(([name, pair]) => [name, pair.map(rgb)])
+        );
     }""")
     for name, (foreground, background) in colors.items():
         minimum = 3 if name == "border" else 4.5  # WCAG AA: text 4.5:1, control outlines 3:1

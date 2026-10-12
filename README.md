@@ -17,7 +17,7 @@ This repository contains a **FastAPI** application that streams answers from an 
 - **FastAPI**  
   We wrap the OpenAI calls in a FastAPI server with an SSE endpoint for real-time token streaming. It uses the async OpenAI client, so the server keeps serving other requests while a reply is being generated.
 - **Streaming Chat UI**  
-  A simple front-end using **Alpine.js** and plain CSS to let users enter a prompt, see the streamed tokens in real time, and stop the generation if desired.
+  A simple front-end using **Alpine.js** and **Tailwind CSS** to let users enter a prompt, see the streamed tokens in real time, and stop the generation if desired.
 
 ---
 
@@ -132,7 +132,7 @@ Every message costs OpenAI credits, so the app protects them:
 - **Messages stay out of URLs**: they travel in the body of a `POST`, so they don't show up in the access logs of uvicorn or of a proxy.
 - **CSRF protection**: `/chat-stream` rejects requests that other websites trigger from your browser (the browser marks them with the `Sec-Fetch-Site` header). Messages are also JSON, which another site can't send without a CORS preflight, and FastAPI ignores JSON bodies labeled as anything else. There is no CORS middleware, since the UI is served from the same origin.
 - **Safe rendering of replies**: the model's output is untrusted, so the Markdown HTML goes through [DOMPurify](https://github.com/cure53/DOMPurify) with an allowlist: no scripts, images, styles, classes or Alpine attributes, so a reply can't run code, restyle the page or send data to other sites. Math is cut out first and rendered by KaTeX, whose risky commands (`\href`, `\htmlData`, ...) stay disabled.
-- **Pinned frontend libraries**: every script and stylesheet loaded from a CDN has an exact version and a [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity) hash, so the browser rejects any modified file; a test fails if one is missing. The page's own styles are plain CSS in `index.html`.
+- **Pinned frontend libraries**: every script and stylesheet loaded from a CDN has an exact version and a [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity) hash, so the browser rejects any modified file; a test fails if one is missing. The page's own styles are compiled by Tailwind into `static/app.css` and served by the app itself, behind the same credentials.
 - **Content Security Policy**: the page only runs scripts and styles that carry a nonce generated for each load, with neither `'unsafe-inline'` nor `'unsafe-eval'` for scripts. If HTML ever got past DOMPurify, the browser would still refuse to run it. That is why the page uses Alpine's [CSP build](https://alpinejs.dev/advanced/csp), which evaluates expressions without `eval()`, and an `x-markdown` directive instead of `x-html`, which the CSP build forbids.
 - **Security headers on every response**: `frame-ancestors 'none'` and `X-Frame-Options: DENY` (no other site can embed the chat in a frame, which blocks clickjacking), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cross-Origin-Opener-Policy: same-origin`.
 
@@ -173,9 +173,20 @@ uv run playwright install chromium   # Once
 uv run pytest -m ui
 ```
 
-GitHub Actions runs all these checks on every push to `main` and on every pull request, with Python 3.11 to 3.14. It also builds the wheel and checks that it ships the chat template. See `.github/workflows/ci.yml`.
+GitHub Actions runs all these checks on every push to `main` and on every pull request, with Python 3.11 to 3.14. It also checks that `static/app.css` is up to date, builds the wheel and checks that it ships the chat template and its stylesheet. See `.github/workflows/ci.yml`.
 
-Dependabot opens weekly pull requests to update the CI actions and `uv.lock`, skipping releases younger than a week (security fixes are not delayed). It doesn't cover the frontend libraries in `index.html`: to update one, change its version and its `integrity` hash together.
+Dependabot opens weekly pull requests to update the CI actions and `uv.lock`, skipping releases younger than a week (security fixes are not delayed). It doesn't cover the frontend libraries in `index.html` (to update one, change its version and its `integrity` hash together) or the Tailwind CLI (see [Styles](#styles)).
+
+### Styles
+
+The page is styled with [Tailwind CSS](https://tailwindcss.com/) utility classes. The compiled stylesheet, `src/fastapi_ai_assistant/static/app.css`, is committed, so the app needs no build step. After changing the classes in `index.html` or the rules in `tailwind.css`, rebuild it:
+
+```bash
+uv run python scripts/build_css.py           # Build once
+uv run python scripts/build_css.py --watch   # Rebuild on every change while you work
+```
+
+The script runs Tailwind's standalone CLI, so it doesn't need Node.js. It downloads the CLI once into `.cache/` and checks its SHA-256 before every run, the way browsers check SRI hashes. To update Tailwind, change `VERSION` and the hashes in the script together (they are in the `sha256sums.txt` of each release). CI fails if `app.css` doesn't match the templates.
 
 ### Smoke test against the real API
 
@@ -195,14 +206,18 @@ fastapi-ai-assistant/
 ├── .github/
 │   ├── dependabot.yml      # Weekly updates for the CI actions and uv.lock
 │   └── workflows/
-│       └── ci.yml          # Lint, type checks, tests and wheel build on GitHub Actions
+│       └── ci.yml          # Lint, type checks, tests, stylesheet check and wheel build
 ├── src/fastapi_ai_assistant/
 │   ├── main.py             # FastAPI app: SSE endpoint + Responses API streaming
 │   ├── security.py         # Authentication, CSRF check and rate limits
 │   ├── shared.py           # Loads config.toml
+│   ├── tailwind.css        # Source of the page's styles (Tailwind CSS)
+│   ├── static/
+│   │   └── app.css         # Compiled styles, built by scripts/build_css.py
 │   └── templates/
-│       └── index.html      # Chat UI (Alpine.js, marked, KaTeX, DOMPurify, plain CSS)
+│       └── index.html      # Chat UI (Alpine.js, marked, KaTeX, DOMPurify, Tailwind CSS)
 ├── scripts/
+│   ├── build_css.py        # Builds static/app.css with the Tailwind CLI
 │   └── smoke_test.py       # Checks against the real OpenAI API (spends credit)
 ├── tests/                  # pytest suite with a fake OpenAI client (test_ui.py: browser tests)
 ├── config.template.toml    # Copy it to config.toml
@@ -215,10 +230,11 @@ fastapi-ai-assistant/
   - **Response Streaming**: `await client.responses.create(..., stream=True)`, consumed with `async for`.
   - **FastAPI Endpoints**:
     - `GET /`: Serves the chat UI.
+    - `GET /static/app.css`: Serves its compiled stylesheet.
     - `POST /chat-stream` (JSON body with `prompt` and `conversation_id`): Streams the AI response via SSE.
 
 - **`index.html`**:
-  - A chat interface styled with plain CSS, with **Alpine.js** for reactivity.
+  - A chat interface styled with Tailwind CSS utility classes, with **Alpine.js** for reactivity.
   - Sends each message with `fetch` and reads the SSE reply as it streams in (`readServerSentEvents()`, since `EventSource` can only send `GET` requests). It keeps the conversation id sent by the server.
   - Displays real-time tokens as they arrive and offers a **Stop** button.
   - Renders replies as sanitized Markdown with KaTeX math (the `x-markdown` directive, through `renderMarkdown()`); your own messages are shown as plain text.
@@ -232,7 +248,7 @@ fastapi-ai-assistant/
 - **Instructions**:  
   Edit `INSTRUCTIONS` in `main.py` to define the assistant's personality or domain knowledge. They are sent with every response.
 - **UI/Styling**:  
-  Modify `index.html` or integrate a different frontend approach.
+  Modify `index.html` and `tailwind.css`, then rebuild the stylesheet (see [Styles](#styles)), or integrate a different frontend approach.
 
 ---
 

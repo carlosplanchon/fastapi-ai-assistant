@@ -31,6 +31,9 @@ jobs:
         run: uv run --no-sync black --check .
       - name: Mypy
         run: uv run --no-sync mypy src
+      - name: Stylesheet is up to date
+        # Rebuilds static/app.css with the pinned Tailwind CLI and compares it with the committed one.
+        run: uv run --no-sync python scripts/build_css.py --check
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -79,9 +82,10 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - name: Build
         run: uv build
-      - name: Check that the wheel ships the chat template
+      - name: Check that the wheel ships the chat template and its stylesheet
         run: |
           uv run --isolated --no-project --with dist/*.whl python - <<'EOF'
           from importlib.resources import files
           assert files("fastapi_ai_assistant").joinpath("templates/index.html").is_file()
+          assert files("fastapi_ai_assistant").joinpath("static/app.css").is_file()
           EOF

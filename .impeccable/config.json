@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/fastapi_ai_assistant/tailwind.css"
+        ],
+        "createdAt": "2026-10-12T04:38:14.518Z",
+        "reason": "Agent: left rule on Markdown blockquotes (neutral gray-300, a quotation convention, not a card accent); ports the existing design 1:1 (index.html at HEAD: border-left: 3px solid #d1d5db)"
+      }
+    ]
+  }
+}

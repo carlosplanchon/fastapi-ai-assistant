@@ -1,6 +1,7 @@
 # Weekly pull requests that update the CI actions (pinned by SHA) and uv.lock.
 # The cooldown skips releases younger than a week; security updates are not delayed.
-# The frontend libraries loaded from the CDN in index.html are not covered.
+# Not covered: the frontend libraries loaded from the CDN in index.html and the Tailwind CLI
+# pinned in scripts/build_css.py.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
