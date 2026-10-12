@@ -143,6 +143,17 @@ If you expose the app beyond your machine:
 
 ---
 
+## Accessibility
+
+- **Screen readers**: the page has a `main` landmark, the message box a real label (not just a placeholder, which disappears while typing), and the conversation is a `log`. Each reply is announced once it's complete, from a hidden live region, instead of token by token while it streams in.
+- **Keyboard**: the conversation can be focused and scrolled with the keyboard, and the focus goes back to the message box after each reply or after Stop.
+- **Contrast**: text has at least the 4.5:1 that WCAG AA asks for, and the message box's border 3:1.
+- **Phones**: the page fits a 320 px wide screen without sideways scrolling; long words and links wrap.
+
+The browser tests check each of these points, and an [axe-core](https://github.com/dequelabs/axe-core) audit finds no WCAG 2.2 A/AA violations.
+
+---
+
 ## Development
 
 Install the development tools, then run the same checks as CI:

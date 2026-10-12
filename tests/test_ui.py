@@ -6,16 +6,16 @@ They don't run by default. Install Chromium once, then select them with -m ui:
     uv run pytest -m ui
 """
 
+import re
 import time
 
 import pytest
 from playwright.sync_api import Locator, Page, expect
 from support import AUTH, code_interpreter_done, code_interpreter_started, text_delta
 
-pytestmark = [
-    pytest.mark.ui,
-    pytest.mark.browser_context_args(http_credentials={"username": AUTH[0], "password": AUTH[1]}),
-]
+CREDENTIALS = {"username": AUTH[0], "password": AUTH[1]}
+
+pytestmark = [pytest.mark.ui, pytest.mark.browser_context_args(http_credentials=CREDENTIALS)]
 
 MARKDOWN = r"""**Bold**, *italic* and `code`:
 
@@ -260,3 +260,116 @@ def test_page_cannot_be_embedded_in_another_site(page, server_url):
     page.wait_for_timeout(500)
     # The browser refuses to show the chat inside the frame (frame-ancestors 'none').
     assert "AI Chat" not in page.frames[1].content()
+
+
+# --- Accessibility ---
+
+
+def contrast(color_a: str, color_b: str) -> float:
+    """
+    WCAG contrast ratio between two computed CSS colors, e.g. "rgb(37, 99, 235)".
+    """
+
+    def luminance(color: str) -> float:
+        channels = [float(value) / 255 for value in re.findall(r"[\d.]+", color)[:3]]
+        r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    lighter, darker = sorted((luminance(color_a), luminance(color_b)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def test_page_structure_works_for_assistive_technology(page, server_url):
+    page.goto(server_url)
+    expect(page.get_by_role("main")).to_be_visible()
+    expect(page.get_by_role("heading", name="AI Chat", level=1)).to_be_visible()
+    # A real label: the placeholder disappears as soon as you type.
+    expect(page.get_by_label("Message")).to_have_attribute("placeholder", "Type your message...")
+    expect(page.get_by_role("log", name="Conversation")).to_be_attached()
+
+
+def test_focus_returns_to_the_message_box(page, server_url, fake_openai):
+    page.goto(server_url)
+    message_box = page.get_by_label("Message")
+    send(page, "Hi")
+    last_reply(page, "Hello there")
+    expect(message_box).to_be_focused()
+
+    fake_openai.events = [text_delta(f"token{i} ") for i in range(40)]
+    fake_openai.delay = 0.1
+    send(page, "Count slowly")
+    expect(page.locator(".markdown").last).to_contain_text("token1 ")
+    page.get_by_role("button", name="Stop").click()
+    expect(message_box).to_be_focused()
+
+
+def test_replies_are_announced_once_complete(page, server_url, fake_openai):
+    fake_openai.events = [text_delta(f"word{i} ") for i in range(10)]
+    fake_openai.delay = 0.1
+    page.goto(server_url)
+    announcer = page.locator('[aria-live="polite"]')
+    # The log itself isn't live, or screen readers would read every token as it arrives.
+    expect(page.get_by_role("log")).to_have_attribute("aria-live", "off")
+
+    send(page, "Hi")
+    expect(page.locator(".markdown").last).to_contain_text("word2")
+    expect(announcer).to_be_empty()
+    last_reply(page, "word9")
+    expect(announcer).to_contain_text("word0 word1")
+    expect(announcer).to_contain_text("word9")
+
+
+def test_conversation_can_be_scrolled_with_the_keyboard(page, server_url, fake_openai):
+    fake_openai.events = [text_delta("\n\n".join(f"Paragraph {i}" for i in range(40)))]
+    page.goto(server_url)
+    send(page, "Write a lot")
+    last_reply(page, "Paragraph 39")
+    log = page.get_by_role("log", name="Conversation")
+    # Focusable in every browser, not only in those that make scrollable boxes focusable.
+    expect(log).to_have_attribute("tabindex", "0")
+
+    log.evaluate("(element) => { element.scrollTop = 0; }")
+    log.focus()
+    expect(log).to_be_focused()
+    page.keyboard.press("PageDown")
+    page.wait_for_function("() => document.querySelector('.messages').scrollTop > 0")
+
+
+def test_colors_meet_wcag_contrast(page, server_url, fake_openai):
+    fake_openai.events = chunks(MARKDOWN)  # Has a link
+    page.goto(server_url)
+    send(page, "Show me some formatting")
+    last_reply(page, "A link")
+    colors = page.evaluate("""() => {
+        const style = (selector, pseudo) => getComputedStyle(document.querySelector(selector), pseudo);
+        const replyBubble = style(".message:not(.from-user) .bubble").backgroundColor;
+        return {
+            reply: [style(".markdown").color, replyBubble],
+            link: [style(".markdown a").color, replyBubble],
+            user: [style(".user-text").color, style(".from-user .bubble").backgroundColor],
+            send: [style(".send").color, style(".send").backgroundColor],
+            stop: [style(".stop").color, style(".stop").backgroundColor],
+            placeholder: [style("#message", "::placeholder").color, style("#message").backgroundColor],
+            border: [style("#message").borderTopColor, style(".chat").backgroundColor],
+        };
+    }""")
+    for name, (foreground, background) in colors.items():
+        minimum = 3 if name == "border" else 4.5  # WCAG AA: text 4.5:1, control outlines 3:1
+        ratio = contrast(foreground, background)
+        assert ratio >= minimum, f"{name}: {foreground} on {background} is {ratio:.2f}:1"
+
+
+@pytest.mark.browser_context_args(
+    is_mobile=True, viewport={"width": 320, "height": 640}, http_credentials=CREDENTIALS
+)
+def test_page_fits_a_phone_screen(page, server_url, fake_openai):
+    fake_openai.events = [text_delta("See https://example.com/" + "a" * 120 + " for more.")]
+    page.goto(server_url)
+    send(page, "Hi")
+    last_reply(page, "for more.")
+
+    assert page.evaluate("window.innerWidth") == 320  # The viewport meta tag is honored
+    assert page.evaluate("document.documentElement.scrollWidth") <= 320  # No sideways scrolling
+    # Long words and links wrap inside their bubble instead of widening the conversation.
+    log = page.get_by_role("log")
+    assert log.evaluate("(element) => element.scrollWidth <= element.clientWidth")

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI Chat App</title>
   <!-- Markdown, math and HTML sanitizing for the replies. Exact versions with SRI hashes:
        the browser refuses a file that differs from the one reviewed. Every script and style
@@ -65,20 +66,27 @@
     .bubble {
       display: inline-block; max-width: 100%; padding: 0.5rem 0.75rem; border-radius: 0.25rem;
       text-align: left; background: #e5e7eb; color: #374151;
+      overflow-wrap: anywhere;  /* Long words and links wrap instead of overflowing */
     }
     .from-user .bubble { background: #dbeafe; color: #1d4ed8; }
     .user-text { white-space: pre-wrap; }
+    /* Read by screen readers, but not shown */
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+      clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
 
-    /* Message box and buttons */
+    /* Message box and buttons. Text keeps the 4.5:1 contrast that WCAG AA asks for,
+       and the box's border the 3:1 asked for the outline of controls. */
     .composer { display: flex; align-items: center; gap: 0.5rem; }
     .composer input {
-      width: 100%; padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem;
+      width: 100%; padding: 0.25rem 0.5rem; border: 1px solid #6b7280; border-radius: 0.25rem;
     }
-    /* Text colors keep at least the 4.5:1 contrast that WCAG AA asks for. */
     .composer input::placeholder { color: #6b7280; opacity: 1; }
     .composer button { padding: 0.5rem 1rem; border-radius: 0.25rem; color: #fff; }
     .send { background: #2563eb; }
-    .send:hover { background: #1d4ed8; }
+    .send:hover:not(:disabled) { background: #1d4ed8; }
+    .send:disabled { opacity: 0.6; }  /* Shows that it can't be used while a reply streams */
     .stop { background: #dc2626; }
     .stop:hover { background: #b91c1c; }
 
@@ -107,11 +115,13 @@
   </style>
 </head>
 <body>
-  <div class="chat" x-data="chatApp">
+  <main class="chat" x-data="chatApp">
     <h1 class="title">AI Chat</h1>
 
-    <!-- The conversation messages -->
-    <div class="messages">
+    <!-- The conversation messages. Not a live region: screen readers would read every token
+         as it streams in, so each reply is announced once it's complete (see the next div).
+         tabindex lets keyboard users focus the log to scroll it. -->
+    <div class="messages" role="log" aria-label="Conversation" aria-live="off" tabindex="0">
       <template x-for="(msg, idx) in messages" :key="idx">
         <div class="message" :class="{ 'from-user': msg.sender === 'user' }">
           <div class="bubble">
@@ -126,10 +136,15 @@
         </div>
       </template>
     </div>
+    <div class="visually-hidden" aria-live="polite" x-ref="announcer"></div>
 
     <!-- Input and buttons area -->
     <form @submit.prevent="sendMessage" class="composer">
+      <!-- The placeholder disappears while typing, so the box needs a real label -->
+      <label for="message" class="visually-hidden">Message</label>
       <input
+        id="message"
+        x-ref="message"
         x-model="newMessage"
         type="text"
         placeholder="Type your message..."
@@ -153,7 +168,7 @@
         Stop
       </button>
     </form>
-  </div>
+  </main>
 
   <script nonce="{{ csp_nonce }}">
     // Replies come from the model, so they are untrusted HTML. Math is cut out first and
@@ -261,6 +276,7 @@
           this.newMessage = "";
           this.streaming = true;
           this.currentRequest = new AbortController();
+          this.$refs.announcer.replaceChildren();
 
           // The assistant's message, created when the first text arrives
           let reply = null;
@@ -303,6 +319,19 @@
           } finally {
             this.currentRequest = null;
             this.streaming = false;
+            this.$nextTick(() => {
+              // Screen readers read the finished (or stopped) reply once, as rendered
+              const rendered = this.$root.querySelector(".message:last-of-type .markdown");
+              if (reply && rendered) {
+                this.$refs.announcer.replaceChildren(...rendered.cloneNode(true).childNodes);
+              }
+              // Disabling the message box (or hiding Stop) took the focus: give it back to
+              // the box, unless the user has moved on to something else on the page
+              const focused = document.activeElement;
+              if (focused === document.body || this.$refs.message.form.contains(focused)) {
+                this.$refs.message.focus();
+              }
+            });
           }
         },
 
