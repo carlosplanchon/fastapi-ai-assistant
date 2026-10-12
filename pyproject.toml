@@ -31,7 +31,6 @@ classifiers = [
 dependencies = [
     "fastapi",
     "uvicorn",
-    "python-multipart",
     "jinja2",
     "sse-starlette",
     "openai>=1.101",  # First release with the Conversations API.

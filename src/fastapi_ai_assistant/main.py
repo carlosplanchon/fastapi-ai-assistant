@@ -108,9 +108,6 @@ if root_path != "":
 else:
     root_prefix = ""
 
-print(f"root_path: {root_path}")
-print(f"root_prefix: {root_prefix}")
-
 # Every route requires the credentials from config.toml. The automatic API docs
 # (/docs, /redoc, /openapi.json) are turned off: FastAPI serves them without dependencies.
 app = FastAPI(
